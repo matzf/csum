@@ -148,24 +148,22 @@ static uint32_t hsum_u16_u32(__m256i a)
   return hsum_u32(alo32) + hsum_u32(ahi32); // XXX can be optimized
 }
 
-__attribute__((noinline)) 
+__attribute__((noinline))
 static uint16_t csum_avx2_32(const char *ptr, size_t len)
 {
   __m128i* d = (__m128i*)ptr;
-  __m256i sum_v = _mm256_setzero_si256();
+  __m256i sum = _mm256_setzero_si256();
   for (size_t i = 0; i < len/sizeof(*d); ++i) {
     __m256i p = _mm256_cvtepu16_epi32(d[i]);
-    sum_v = _mm256_add_epi32(sum_v, p);
+    sum = _mm256_add_epi32(sum, p);
   }
-
-  uint32_t sum = hsum_u32(sum_v);
-  return fold_csum32(sum);
+  return fold_csum32(hsum_u32(sum));
 }
 
 __attribute__((noinline)) 
 static uint16_t csum_avx2_16(const char *ptr, size_t len)
 {
-  __m256i v_sum = _mm256_setzero_si256();
+  __m256i sum = _mm256_setzero_si256();
   __m256i carry = _mm256_setzero_si256();
   __m256i one = _mm256_set1_epi16(1);
 
@@ -173,12 +171,12 @@ static uint16_t csum_avx2_16(const char *ptr, size_t len)
   for (size_t i = 0; i < len/sizeof(*d); ++i) {
     __m256i p = _mm256_load_si256(d + i);
 #if 1
-    __m256i tmp = _mm256_adds_epu16(p, v_sum);
-    v_sum = _mm256_add_epi16(p, v_sum);
-    __m256i inc = _mm256_andnot_si256(_mm256_cmpeq_epi16(tmp, v_sum), one);
+    __m256i tmp = _mm256_adds_epu16(p, sum);
+    sum = _mm256_add_epi16(p, sum);
+    __m256i inc = _mm256_andnot_si256(_mm256_cmpeq_epi16(tmp, sum), one);
 #else
-    __m256i gt = _mm256_cmpgt_epi16(v_sum, p);
-    __m256i eq = _mm256_cmpeq_epi16(v_sum, p);
+    __m256i gt = _mm256_cmpgt_epi16(sum, p);
+    __m256i eq = _mm256_cmpeq_epi16(sum, p);
     __m256i not_less = _mm256_or_si256(gt, eq);
     __m256i inc = _mm256_andnot_si256(not_less, one);
 #endif
@@ -189,15 +187,14 @@ static uint16_t csum_avx2_16(const char *ptr, size_t len)
       print_i16("p  ", p);
       print_i16("tmp", tmp);
       print_i16("inc", inc);
-      print_i16("sum", v_sum);
+      print_i16("sum", sum);
       print_i16("car", carry);
     }
 #endif
   }
 
-  v_sum = _mm256_add_epi16(v_sum, carry);
-  uint32_t sum = hsum_u16_u32(v_sum);
-  return fold_csum32(sum);
+  sum = _mm256_add_epi16(sum, carry);
+  return fold_csum32(hsum_u16_u32(sum));
 }
 
 #define benchmark(fun) \
