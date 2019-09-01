@@ -173,6 +173,22 @@ static uint16_t csum_avx2_32(const char *ptr, size_t len)
   return fold_csum32(hsum_u32(sum));
 }
 
+  __attribute__((noinline))
+static uint16_t csum_avx2_32_unroll(const char *ptr, size_t len)
+{
+  __m128i* d = (__m128i*)ptr;
+  __m256i sum0 = _mm256_setzero_si256();
+  __m256i sum1 = _mm256_setzero_si256();
+  for (size_t i = 0; i < len/sizeof(*d); i+=2) {
+    __m256i p0 = _mm256_cvtepu16_epi32(d[i]);
+    __m256i p1 = _mm256_cvtepu16_epi32(d[i+1]);
+    sum0 = _mm256_add_epi32(sum0, p0);
+    sum1 = _mm256_add_epi32(sum1, p1);
+  }
+  __m256i sum = _mm256_add_epi32(sum0, sum1);
+  return fold_csum32(hsum_u32(sum));
+}
+
 // Compare *unsigned* int 16
 static __m256i cmpgt_epu16(__m256i a, __m256i b)
 {
@@ -300,6 +316,7 @@ benchmark(csum_avx2_16_unroll)
 benchmark(csum_avx2_16_adds)
 benchmark(csum_avx2_16_popcnt)
 benchmark(csum_avx2_32)
+benchmark(csum_avx2_32_unroll)
 
 static void benchmarks() {
   struct slice s;
@@ -311,6 +328,7 @@ static void benchmarks() {
     benchmark_csum_avx2_16_adds(s);
     benchmark_csum_avx2_16_popcnt(s);
     benchmark_csum_avx2_32(s);
+    benchmark_csum_avx2_32_unroll(s);
   }
 }
 
@@ -340,6 +358,7 @@ int main(int argc, const char **argv)
   printf("avx2_16_adds:   0x%x\n", csum_avx2_16_adds(s.ptr, s.len));
   printf("avx2_16_popcnt: 0x%x\n", csum_avx2_16_popcnt(s.ptr, s.len));
   printf("avx2_32:        0x%x\n", csum_avx2_32(s.ptr, s.len));
+  printf("avx2_32_unroll: 0x%x\n", csum_avx2_32_unroll(s.ptr, s.len));
 
   return 0;
 }
