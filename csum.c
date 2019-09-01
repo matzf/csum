@@ -187,15 +187,12 @@ static uint16_t csum_avx2_16(const char *ptr, size_t len)
 {
   __m256i sum = _mm256_setzero_si256();
   __m256i carry = _mm256_setzero_si256();
-  __m256i one = _mm256_set1_epi16(1);
 
   __m256i* d = (__m256i*)ptr;
   for (size_t i = 0; i < len/sizeof(*d); ++i) {
     __m256i p = _mm256_load_si256(d + i);
     sum = _mm256_add_epi16(p, sum);
-    __m256i overflow = cmpgt_epu16(p, sum);
-    __m256i inc = _mm256_and_si256(overflow, one);
-    carry = _mm256_add_epi16(carry, inc);
+    carry = _mm256_sub_epi16(carry, cmpgt_epu16(p, sum));
   }
 
   __m256i s = cvt_u16_u32_add(sum);
