@@ -296,13 +296,32 @@ benchmark(csum_avx2_16_adds)
 benchmark(csum_avx2_16_popcnt)
 benchmark(csum_avx2_32)
 
+static void benchmarks() {
+  struct slice s;
+  for(int i = 0; i < 4; ++i) {
+    s = alloc_random(1024, i);
+    benchmark_csum_simple(s);
+    benchmark_csum_avx2_16(s);
+    benchmark_csum_avx2_16_unroll(s);
+    benchmark_csum_avx2_16_adds(s);
+    benchmark_csum_avx2_16_popcnt(s);
+    benchmark_csum_avx2_32(s);
+  }
+}
 
 int main(int argc, const char **argv)
 {
-  if(argc < 2) exit(2);
+  int argi = 1;
+  if(argi < argc && strcmp(argv[argi++], "-b") == 0) {
+    benchmarks();
+    return 0;
+  }
 
 #if 0
-  struct slice s = open_r_mmap(argv[1]);
+  if(argi >= argc) {
+    return 2;
+  }
+  struct slice s = open_r_mmap(argv[argi++]);
   s.len = 4*32;
 #else
   (void)argv;
@@ -317,13 +336,5 @@ int main(int argc, const char **argv)
   printf("avx2_16_popcnt: 0x%x\n", csum_avx2_16_popcnt(s.ptr, s.len));
   printf("avx2_32:        0x%x\n", csum_avx2_32(s.ptr, s.len));
 
-  for(int i = 0; i < 4; ++i) {
-    s = alloc_random(1024, i);
-    benchmark_csum_simple(s);
-    benchmark_csum_avx2_16(s);
-    benchmark_csum_avx2_16_unroll(s);
-    benchmark_csum_avx2_16_adds(s);
-    benchmark_csum_avx2_16_popcnt(s);
-    benchmark_csum_avx2_32(s);
-  }
+  return 0;
 }
