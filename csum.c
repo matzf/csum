@@ -181,18 +181,23 @@ static __m256i cmpgt_epu16(__m256i a, __m256i b)
                             _mm256_xor_si256(b, signbit));
 }
 
+static __m256i cmple_epu16(__m256i a, __m256i b)
+{
+  return _mm256_cmpeq_epi16(_mm256_min_epu16(a, b), a);
+}
+
 
 __attribute__((noinline))
 static uint16_t csum_avx2_16(const char *ptr, size_t len)
 {
-  __m256i sum = _mm256_setzero_si256();
-  __m256i carry = _mm256_setzero_si256();
-
   __m256i* d = (__m256i*)ptr;
+  __m256i sum = _mm256_setzero_si256();
+  __m256i carry = _mm256_set1_epi16(len/sizeof(*d)); // Carry: count down on non-overflows (saves a negation/bitwise-and)
+
   for (size_t i = 0; i < len/sizeof(*d); ++i) {
     __m256i p = _mm256_load_si256(d + i);
     sum = _mm256_add_epi16(p, sum);
-    carry = _mm256_sub_epi16(carry, cmpgt_epu16(p, sum));
+    carry = _mm256_add_epi16(carry, cmple_epu16(p, sum));
   }
 
   __m256i s = cvt_u16_u32_add(sum);
