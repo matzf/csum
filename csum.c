@@ -146,13 +146,19 @@ static uint32_t hsum_u32(__m256i a)
   return c0 + c1;
 }
 
-static uint32_t hsum_u16_u32(__m256i a)
+
+static __m256i cvt_u16_u32_add(__m256i a)
 {
   __m128i alo = _mm256_castsi256_si128(a);
   __m128i ahi = _mm256_extracti128_si256(a, 1);
   __m256i alo32 = _mm256_cvtepu16_epi32(alo);
   __m256i ahi32 = _mm256_cvtepu16_epi32(ahi);
-  return hsum_u32(alo32) + hsum_u32(ahi32); // XXX can be optimized
+  return _mm256_add_epi32(alo32, ahi32);
+}
+
+static uint32_t hsum_u16_u32(__m256i a)
+{
+  return hsum_u32(cvt_u16_u32_add(a));
 }
 
 __attribute__((noinline))
@@ -175,6 +181,7 @@ static __m256i cmpgt_epu16(__m256i a, __m256i b)
                             _mm256_xor_si256(b, signbit));
 }
 
+
 __attribute__((noinline))
 static uint16_t csum_avx2_16(const char *ptr, size_t len)
 {
@@ -185,28 +192,78 @@ static uint16_t csum_avx2_16(const char *ptr, size_t len)
   __m256i* d = (__m256i*)ptr;
   for (size_t i = 0; i < len/sizeof(*d); ++i) {
     __m256i p = _mm256_load_si256(d + i);
-#if 0
-    __m256i tmp = _mm256_adds_epu16(p, sum);
-    sum = _mm256_add_epi16(p, sum);
-    __m256i inc = _mm256_andnot_si256(_mm256_cmpeq_epi16(tmp, sum), one);
-#else
     sum = _mm256_add_epi16(p, sum);
     __m256i overflow = cmpgt_epu16(p, sum);
     __m256i inc = _mm256_and_si256(overflow, one);
-#endif
     carry = _mm256_add_epi16(carry, inc);
-#if 0
-    if(i<10) {
-      printf("--\n");
-      print_i16("p  ", p);
-      print_i16("sum", sum);
-      print_i16("ovf", overflow);
-      print_i16("inc", inc);
-      print_i16("car", carry);
-    }
-#endif
   }
-  return fold_csum32(hsum_u16_u32(sum) + hsum_u16_u32(carry));
+
+  __m256i s = cvt_u16_u32_add(sum);
+  s = _mm256_add_epi32(s, cvt_u16_u32_add(carry));
+  return fold_csum32(hsum_u32(s));
+}
+
+__attribute__((noinline))
+static uint16_t csum_avx2_16_unroll(const char *ptr, size_t len)
+{
+  __m256i sum0 = _mm256_setzero_si256();
+  __m256i sum1 = _mm256_setzero_si256();
+  __m256i sum2 = _mm256_setzero_si256();
+  __m256i sum3 = _mm256_setzero_si256();
+  __m256i carry0 = _mm256_setzero_si256();
+  __m256i carry1 = _mm256_setzero_si256();
+  __m256i carry2 = _mm256_setzero_si256();
+  __m256i carry3 = _mm256_setzero_si256();
+
+  __m256i* d = (__m256i*)ptr;
+  #pragma clang loop unroll(disable)
+  for (size_t i = 0; i < len/sizeof(*d); i += 4) {
+    __m256i p0 = _mm256_load_si256(d + i);
+    __m256i p1 = _mm256_load_si256(d + i + 1);
+    __m256i p2 = _mm256_load_si256(d + i + 2);
+    __m256i p3 = _mm256_load_si256(d + i + 3);
+    sum0 = _mm256_add_epi16(p0, sum0);
+    sum1 = _mm256_add_epi16(p1, sum1);
+    sum2 = _mm256_add_epi16(p2, sum2);
+    sum3 = _mm256_add_epi16(p3, sum3);
+    carry0 = _mm256_sub_epi16(carry0, cmpgt_epu16(p0, sum0));
+    carry1 = _mm256_sub_epi16(carry1, cmpgt_epu16(p1, sum1));
+    carry2 = _mm256_sub_epi16(carry2, cmpgt_epu16(p2, sum2));
+    carry3 = _mm256_sub_epi16(carry3, cmpgt_epu16(p3, sum3));
+  }
+  // a b c d e f g h
+  // ab  cd  ef  gh   4
+  // abcd    efgh     2
+  // abcdefgh         1
+  __m256i s = cvt_u16_u32_add(sum0);
+  s = _mm256_add_epi32(s, cvt_u16_u32_add(sum1));
+  s = _mm256_add_epi32(s, cvt_u16_u32_add(sum2));
+  s = _mm256_add_epi32(s, cvt_u16_u32_add(sum3));
+  s = _mm256_add_epi32(s, cvt_u16_u32_add(carry0));
+  s = _mm256_add_epi32(s, cvt_u16_u32_add(carry1));
+  s = _mm256_add_epi32(s, cvt_u16_u32_add(carry2));
+  s = _mm256_add_epi32(s, cvt_u16_u32_add(carry3));
+  return fold_csum32(hsum_u32(s));
+}
+
+__attribute__((noinline))
+static uint16_t csum_avx2_16_adds(const char *ptr, size_t len)
+{
+  __m256i sum = _mm256_setzero_si256();
+  __m256i carry = _mm256_setzero_si256();
+  __m256i one = _mm256_set1_epi16(1);
+
+  __m256i* d = (__m256i*)ptr;
+  for (size_t i = 0; i < len/sizeof(*d); ++i) {
+    __m256i p = _mm256_load_si256(d + i);
+    __m256i tmp = _mm256_adds_epu16(p, sum);
+    sum = _mm256_add_epi16(p, sum);
+    __m256i inc = _mm256_andnot_si256(_mm256_cmpeq_epi16(tmp, sum), one);
+    carry = _mm256_add_epi16(carry, inc);
+  }
+  __m256i s = cvt_u16_u32_add(sum);
+  s = _mm256_add_epi32(s, cvt_u16_u32_add(carry));
+  return fold_csum32(hsum_u16_u32(s));
 }
 
 __attribute__((noinline))
@@ -255,6 +312,8 @@ static uint16_t csum_avx2_16_popcnt(const char *ptr, size_t len)
 
 benchmark(csum_simple)
 benchmark(csum_avx2_16)
+benchmark(csum_avx2_16_unroll)
+benchmark(csum_avx2_16_adds)
 benchmark(csum_avx2_16_popcnt)
 benchmark(csum_avx2_32)
 
@@ -274,6 +333,8 @@ int main(int argc, const char **argv)
   printf("%p, %zu\n", s.ptr, s.len);
   printf("simple:         0x%x\n", csum_simple(s.ptr, s.len));
   printf("avx2_16:        0x%x\n", csum_avx2_16(s.ptr, s.len));
+  printf("avx2_16_unroll: 0x%x\n", csum_avx2_16_unroll(s.ptr, s.len));
+  printf("avx2_16_adds:   0x%x\n", csum_avx2_16_adds(s.ptr, s.len));
   printf("avx2_16_popcnt: 0x%x\n", csum_avx2_16_popcnt(s.ptr, s.len));
   printf("avx2_32:        0x%x\n", csum_avx2_32(s.ptr, s.len));
 
@@ -281,6 +342,8 @@ int main(int argc, const char **argv)
     s = alloc_random(1024, i);
     benchmark_csum_simple(s);
     benchmark_csum_avx2_16(s);
+    benchmark_csum_avx2_16_unroll(s);
+    benchmark_csum_avx2_16_adds(s);
     benchmark_csum_avx2_16_popcnt(s);
     benchmark_csum_avx2_32(s);
   }
