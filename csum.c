@@ -319,37 +319,29 @@ benchmark(csum_avx2_32)
 benchmark(csum_avx2_32_unroll)
 
 static void benchmarks() {
-  struct slice s;
-  for(int i = 0; i < 4; ++i) {
-    s = alloc_random(1024, i);
-    benchmark_csum_simple(s);
-    benchmark_csum_avx2_16(s);
-    benchmark_csum_avx2_16_unroll(s);
-    benchmark_csum_avx2_16_adds(s);
-    benchmark_csum_avx2_16_popcnt(s);
-    benchmark_csum_avx2_32(s);
-    benchmark_csum_avx2_32_unroll(s);
-  }
+  struct slice s = alloc_random(1024, 0);
+  benchmark_csum_simple(s);
+  benchmark_csum_avx2_16(s);
+  benchmark_csum_avx2_16_unroll(s);
+  benchmark_csum_avx2_16_adds(s);
+  benchmark_csum_avx2_16_popcnt(s);
+  benchmark_csum_avx2_32(s);
+  benchmark_csum_avx2_32_unroll(s);
 }
 
 int main(int argc, const char **argv)
 {
   int argi = 1;
-  if(argi < argc && strcmp(argv[argi++], "-b") == 0) {
+  if(argi < argc && strcmp(argv[argi], "-b") == 0) {
+    argi++;
     benchmarks();
     return 0;
   }
 
-#if 0
   if(argi >= argc) {
     return 2;
   }
   struct slice s = open_r_mmap(argv[argi++]);
-  s.len = 4*32;
-#else
-  (void)argv;
-  struct slice s = alloc_random(1024, 0xdeadbeef);
-#endif
 
   printf("%p, %zu\n", s.ptr, s.len);
   printf("simple:         0x%x\n", csum_simple(s.ptr, s.len));
